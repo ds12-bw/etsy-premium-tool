@@ -18,30 +18,39 @@ if api_key:
     with tab1:
         uploaded_file = st.file_uploader("อัปโหลดไฟล์ CSV จาก Etsy Spy", type="csv")
         if uploaded_file:
-            df = pd.read_csv(uploaded_file)
-            total_basket = df['InBasket'].sum()
-            avg_price = df['Price'].mean()
-            # สูตรคำนวณโอกาส (Opportunity Score)
-            score = round((total_basket / (search_results / 1000 + 1)) * 2, 2)
-            score = min(score, 100)
+            # เพิ่ม error_bad_lines=False เพื่อข้ามบรรทัดที่เสีย
+            try:
+                df = pd.read_csv(uploaded_file, on_bad_lines='skip')
+                
+                # ทำความสะอาดข้อมูลราคา (เอาเครื่องหมายคอมม่าออกถ้ามี)
+                df['Price'] = df['Price'].astype(str).str.replace(',', '').astype(float, errors='ignore')
+                
+                total_basket = pd.to_numeric(df['InBasket'], errors='coerce').sum()
+                avg_price = pd.to_numeric(df['Price'], errors='coerce').mean()
+                
+                # สูตรคำนวณโอกาส (Opportunity Score)
+                score = round((total_basket / (search_results / 1000 + 1)) * 2, 2)
+                score = min(score, 100)
 
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Total In-Basket", total_basket)
-            col2.metric("Avg Market Price", f"${avg_price:.2f}")
-            status = "🟢 High Opportunity" if score > 50 else "🟡 Moderate" if score > 25 else "🔴 High Competition"
-            col3.metric("Market Score", f"{score}/100", status)
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Total In-Basket", int(total_basket))
+                col2.metric("Avg Market Price", f"${avg_price:.2f}")
+                status = "🟢 High Opportunity" if score > 50 else "🟡 Moderate" if score > 25 else "🔴 High Competition"
+                col3.metric("Market Score", f"{score}/100", status)
 
-            if st.button("Generate Winning Listing"):
-                with st.spinner('AI กำลังวิเคราะห์...'):
-                    prompt = f"คู่แข่งข้อมูล: {df.to_string()[:1500]}\nสร้าง Title(140 chars), 13 Tags(no repeat), และ Description ภาษาอังกฤษ โดยวิเคราะห์จุดอ่อนคู่แข่งให้ด้วย (ตอบเป็นไทยในส่วนวิเคราะห์)"
-                    response = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt}])
-                    st.markdown(response.choices[0].message.content)
+                if st.button("Generate Winning Listing"):
+                    with st.spinner('AI กำลังวิเคราะห์...'):
+                        prompt = f"วิเคราะห์คู่แข่งจากข้อมูลนี้: {df.to_string()[:1500]}\nสร้าง Title(140 chars), 13 Tags(no repeat), และ Description ภาษาอังกฤษ สำหรับสินค้าใหม่ที่พรีเมี่ยมกว่าเดิม (ตอบเป็นไทยในส่วนวิเคราะห์กลยุทธ์)"
+                        response = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt}])
+                        st.markdown(response.choices[0].message.content)
+            except Exception as e:
+                st.error(f"เกิดข้อผิดพลาดในการอ่านไฟล์: {e}")
 
     with tab2:
         st.header("เครื่องคำนวณกำไร")
         p = st.number_input("ราคาขาย ($)", value=25.0)
         c = st.number_input("ต้นทุนรวมส่ง ($)", value=10.0)
-        fee = (p * 0.065) + (p * 0.04) + 0.45 # ประมาณการค่าธรรมเนียม Etsy
+        fee = (p * 0.065) + (p * 0.04) + 0.45 
         profit = p - c - fee
         st.subheader(f"กำไรต่อชิ้น: ${profit:.2f}")
         st.write(f"ค่าธรรมเนียม Etsy โดยประมาณ: ${fee:.2f}")
