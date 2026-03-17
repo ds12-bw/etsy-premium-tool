@@ -18,33 +18,43 @@ if api_key:
     with tab1:
         uploaded_file = st.file_uploader("อัปโหลดไฟล์ CSV จาก Etsy Spy", type="csv")
         if uploaded_file:
-            # เพิ่ม error_bad_lines=False เพื่อข้ามบรรทัดที่เสีย
             try:
-                df = pd.read_csv(uploaded_file, on_bad_lines='skip')
+                # ใช้ on_bad_lines='skip' เพื่อข้ามบรรทัดที่รูปแบบผิดพลาด
+                df = pd.read_csv(uploaded_file, on_bad_lines='skip', encoding='utf-8')
                 
-                # ทำความสะอาดข้อมูลราคา (เอาเครื่องหมายคอมม่าออกถ้ามี)
-                df['Price'] = df['Price'].astype(str).str.replace(',', '').astype(float, errors='ignore')
-                
-                total_basket = pd.to_numeric(df['InBasket'], errors='coerce').sum()
-                avg_price = pd.to_numeric(df['Price'], errors='coerce').mean()
-                
-                # สูตรคำนวณโอกาส (Opportunity Score)
-                score = round((total_basket / (search_results / 1000 + 1)) * 2, 2)
-                score = min(score, 100)
+                # แสดงข้อมูลตัวอย่างให้ผู้ใช้ดู
+                with st.expander("ดูข้อมูลที่ดึงมาได้"):
+                    st.write(df)
 
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Total In-Basket", int(total_basket))
-                col2.metric("Avg Market Price", f"${avg_price:.2f}")
-                status = "🟢 High Opportunity" if score > 50 else "🟡 Moderate" if score > 25 else "🔴 High Competition"
-                col3.metric("Market Score", f"{score}/100", status)
+                # ตรวจสอบว่ามีคอลัมน์ที่ต้องการไหม
+                if 'InBasket' in df.columns and 'Price' in df.columns:
+                    # แปลงข้อมูลเป็นตัวเลข
+                    df['InBasket'] = pd.to_numeric(df['InBasket'], errors='coerce').fillna(0)
+                    df['Price'] = pd.to_numeric(df['Price'].astype(str).str.replace('[^0-9.]', '', regex=True), errors='coerce').fillna(0)
+                    
+                    total_basket = df['InBasket'].sum()
+                    avg_price = df['Price'][df['Price'] > 0].mean()
+                    
+                    score = round((total_basket / (search_results / 1000 + 1)) * 2, 2)
+                    score = min(score, 100)
 
-                if st.button("Generate Winning Listing"):
-                    with st.spinner('AI กำลังวิเคราะห์...'):
-                        prompt = f"วิเคราะห์คู่แข่งจากข้อมูลนี้: {df.to_string()[:1500]}\nสร้าง Title(140 chars), 13 Tags(no repeat), และ Description ภาษาอังกฤษ สำหรับสินค้าใหม่ที่พรีเมี่ยมกว่าเดิม (ตอบเป็นไทยในส่วนวิเคราะห์กลยุทธ์)"
-                        response = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt}])
-                        st.markdown(response.choices[0].message.content)
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Total In-Basket", int(total_basket))
+                    col2.metric("Avg Price (USD)", f"${avg_price:.2f}")
+                    
+                    status = "🟢 High Opportunity" if score > 50 else "🟡 Moderate" if score > 25 else "🔴 High Competition"
+                    col3.metric("Market Score", f"{score}/100", status)
+
+                    if st.button("Generate Winning Listing"):
+                        with st.spinner('AI กำลังวิเคราะห์...'):
+                            prompt = f"วิเคราะห์คู่แข่งจากข้อมูลนี้: {df.head(20).to_string()}\nจำนวนคู่แข่งทั้งหมด: {search_results}\nสร้าง Title(140 chars), 13 Tags(no repeat), และ Description ภาษาอังกฤษ สำหรับสินค้าใหม่ที่พรีเมี่ยมกว่าเดิม (ตอบเป็นไทยในส่วนวิเคราะห์กลยุทธ์)"
+                            response = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt}])
+                            st.markdown(response.choices[0].message.content)
+                else:
+                    st.error("ไฟล์ CSV รูปแบบไม่ถูกต้อง กรุณาใช้ปุ่มดึงข้อมูลเวอร์ชั่นใหม่ครับ")
+            
             except Exception as e:
-                st.error(f"เกิดข้อผิดพลาดในการอ่านไฟล์: {e}")
+                st.error(f"เกิดข้อผิดพลาด: {e}")
 
     with tab2:
         st.header("เครื่องคำนวณกำไร")
@@ -61,6 +71,5 @@ if api_key:
         if k:
             url = f"https://trends.google.com/trends/explore?q={urllib.parse.quote(k)}&date=today%205-y"
             st.markdown(f"[📈 คลิกที่นี่เพื่อเปิดดูเทรนด์ของ '{k}' ย้อนหลัง 5 ปี]({url})")
-
 else:
     st.info("กรุณาใส่ OpenAI API Key ในแถบด้านข้าง")
