@@ -19,39 +19,45 @@ if api_key:
         uploaded_file = st.file_uploader("อัปโหลดไฟล์ CSV จาก Etsy Spy", type="csv")
         if uploaded_file:
             try:
-                # ใช้ on_bad_lines='skip' เพื่อข้ามบรรทัดที่รูปแบบผิดพลาด
-                df = pd.read_csv(uploaded_file, on_bad_lines='skip', encoding='utf-8')
+                # แก้ไขตรงนี้: ใช้ sep='|' เพื่อแยกข้อมูลด้วยเครื่องหมาย Pipe
+                df = pd.read_csv(uploaded_file, sep='|', on_bad_lines='skip', encoding='utf-8')
                 
-                # แสดงข้อมูลตัวอย่างให้ผู้ใช้ดู
-                with st.expander("ดูข้อมูลที่ดึงมาได้"):
+                with st.expander("ตรวจสอบข้อมูลที่ดึงมา"):
                     st.write(df)
 
-                # ตรวจสอบว่ามีคอลัมน์ที่ต้องการไหม
-                if 'InBasket' in df.columns and 'Price' in df.columns:
-                    # แปลงข้อมูลเป็นตัวเลข
+                if 'Title' in df.columns:
+                    # ล้างข้อมูลตัวเลข
                     df['InBasket'] = pd.to_numeric(df['InBasket'], errors='coerce').fillna(0)
                     df['Price'] = pd.to_numeric(df['Price'].astype(str).str.replace('[^0-9.]', '', regex=True), errors='coerce').fillna(0)
                     
                     total_basket = df['InBasket'].sum()
                     avg_price = df['Price'][df['Price'] > 0].mean()
                     
+                    # คำนวณ Opportunity Score
                     score = round((total_basket / (search_results / 1000 + 1)) * 2, 2)
                     score = min(score, 100)
 
                     col1, col2, col3 = st.columns(3)
                     col1.metric("Total In-Basket", int(total_basket))
-                    col2.metric("Avg Price (USD)", f"${avg_price:.2f}")
+                    col2.metric("Avg Price (USD)", f"${avg_price:.2f}" if avg_price > 0 else "N/A")
                     
                     status = "🟢 High Opportunity" if score > 50 else "🟡 Moderate" if score > 25 else "🔴 High Competition"
                     col3.metric("Market Score", f"{score}/100", status)
 
                     if st.button("Generate Winning Listing"):
-                        with st.spinner('AI กำลังวิเคราะห์...'):
-                            prompt = f"วิเคราะห์คู่แข่งจากข้อมูลนี้: {df.head(20).to_string()}\nจำนวนคู่แข่งทั้งหมด: {search_results}\nสร้าง Title(140 chars), 13 Tags(no repeat), และ Description ภาษาอังกฤษ สำหรับสินค้าใหม่ที่พรีเมี่ยมกว่าเดิม (ตอบเป็นไทยในส่วนวิเคราะห์กลยุทธ์)"
-                            response = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt}])
+                        with st.spinner('AI กำลังวิเคราะห์กลยุทธ์...'):
+                            # ส่งข้อมูลให้ AI เพียง 15 บรรทัดแรกเพื่อประหยัด Token และป้องกัน Error
+                            comp_summary = df.head(15).to_string()
+                            prompt = f"วิเคราะห์คู่แข่งจากข้อมูลนี้: {comp_summary}\nจำนวนคู่แข่งทั้งหมด: {search_results}\nสร้าง Title(140 chars), 13 Tags(no repeat), และ Description ภาษาอังกฤษ สำหรับสินค้าใหม่ที่พรีเมี่ยมกว่าเดิม (ตอบเป็นไทยในส่วนวิเคราะห์กลยุทธ์)"
+                            
+                            response = client.chat.completions.create(
+                                model="gpt-4o", 
+                                messages=[{"role": "user", "content": prompt}]
+                            )
+                            st.markdown("---")
                             st.markdown(response.choices[0].message.content)
                 else:
-                    st.error("ไฟล์ CSV รูปแบบไม่ถูกต้อง กรุณาใช้ปุ่มดึงข้อมูลเวอร์ชั่นใหม่ครับ")
+                    st.error("รูปแบบไฟล์ไม่ถูกต้อง กรุณาใช้ปุ่มดึงข้อมูลเวอร์ชั่นล่าสุดครับ")
             
             except Exception as e:
                 st.error(f"เกิดข้อผิดพลาด: {e}")
